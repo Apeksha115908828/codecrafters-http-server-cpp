@@ -50,14 +50,32 @@ int main(int argc, char **argv) {
   
   struct sockaddr_in client_addr;
   int client_addr_len = sizeof(client_addr);
-  
+
   std::cout << "Waiting for a client to connect...\n";
-  
   auto client = accept(server_fd, (struct sockaddr *) &client_addr, (socklen_t *) &client_addr_len);
-  string message = "HTTP/1.1 200 OK\r\n\r\n";
-  send(client, message.c_str(), message.length(), 0);
+  if(client < 0) {
+    std::cerr << "Failed to accept client connection\n";
+    return 1;
+  }
   std::cout << "Client connected\n";
+
+  string cli_message(1024, '\0');
+  size_t recvdbytes = recv(client, cli_message.data(), cli_message.size(), 0);
+  if(recvdbytes < 0) {
+    std::cerr << "Failed to receive message from client\n";
+    return 1;
+  }
+  cout<<"cli_message = "<<cli_message<<endl;
+
+  string message = cli_message.substr(0, 16) == "GET / HTTP/1.1\r\n" ? "HTTP/1.1 200 OK\r\n\r\n" : "HTTP/1.1 404 Not Found\r\n\r\n";
+  size_t sentbytes = send(client, message.c_str(), message.length(), 0);
+  if(sentbytes < 0) {
+    std::cerr << "Failed to send message to client\n";
+    return 1;
+  }
   
+
+  close(client);
   close(server_fd);
 
   return 0;
