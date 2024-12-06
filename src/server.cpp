@@ -62,20 +62,36 @@ int main(int argc, char **argv) {
 
   string cli_message(1024, '\0');
   size_t recvdbytes = recv(client, cli_message.data(), cli_message.size(), 0);
-  cli_message = cli_message.substr(0, cli_message.find("\r\n"));
+  string request = cli_message.substr(0, cli_message.find("\r\n"));
+  vector<string> request_parts;
+  size_t pos = 0;
+  string token;
+  string delimiter = "\r\n";
+  while ((pos = cli_message.find(delimiter)) != string::npos) {
+    token = cli_message.substr(0, pos);
+    request_parts.push_back(token);
+    cli_message.erase(0, pos + delimiter.length());
+  }
+  request_parts.push_back(cli_message);
   if(recvdbytes < 0) {
     std::cerr << "Failed to receive message from client\n";
     return 1;
   }
-  cout<<"cli_message = "<<cli_message<<endl;
+  cout<<"cli_message = "<<request<<endl;
   string message = "";
   string pattern = R"(^GET \/echo\/[^\s]+ HTTP\/1\.1$)";
+  string pattern3 = R"(^GET \/user-agent HTTP\/1\.1$)";
   string pattern2 = R"(^GET \/ HTTP\/1\.1$)";
-  if(cli_message.substr(0, 3) == "GET") {
-    if(regex_match(cli_message, regex(pattern2))) {
+  if(request.substr(0, 3) == "GET") {
+    if(regex_match(request, regex(pattern2))) {
       message = "HTTP/1.1 200 OK\r\n\r\n";
-    } else if (regex_match(cli_message, regex(pattern))) {
-      string var = cli_message.substr(10, cli_message.find("HTTP") - 11);
+    } else if (regex_match(request, regex(pattern3))) {
+      cout<<"came here.....";
+      string user_agent = request_parts[2].replace(0, 12, "");
+      // cout<<"requests_parts.size() = "<<request_parts.size()<<" request_parts[0] = "<<request_parts[0]<<"request_parts[1] = "<<request_parts[1]<<endl;
+      message = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length:" + to_string(user_agent.length()) + "\r\n\r\n" + user_agent;
+    } else if (regex_match(request, regex(pattern))) {
+      string var = request.substr(10, request.find("HTTP") - 11);
       int len = var.length();
       message = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " + to_string(len) + "\r\n\r\n" + var;
     } else {
