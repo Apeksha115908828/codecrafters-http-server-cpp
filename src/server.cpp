@@ -12,6 +12,7 @@
 using namespace std;
 
 int handleRequests(int client) {
+  cout<<"handling client = "<<client<<endl;
   string cli_message(1024, '\0');
   size_t recvdbytes = recv(client, cli_message.data(), cli_message.size(), 0);
   string request = cli_message.substr(0, cli_message.find("\r\n"));
@@ -36,6 +37,7 @@ int handleRequests(int client) {
   string pattern2 = R"(^GET \/ HTTP\/1\.1$)";
   if(request.substr(0, 3) == "GET") {
     if(regex_match(request, regex(pattern2))) {
+      cout<<"replying from client = "<<client<<endl;
       message = "HTTP/1.1 200 OK\r\n\r\n";
     } else if (regex_match(request, regex(pattern3))) {
       cout<<"came here.....";
@@ -57,6 +59,7 @@ int handleRequests(int client) {
     return 1;
   }
   close(client);
+  return 0;
 }
 
 int main(int argc, char **argv) {
@@ -105,6 +108,7 @@ int main(int argc, char **argv) {
   while(true) {
     std::cout << "Waiting for a client to connect...\n";
     int client = accept(server_fd, (struct sockaddr *) &client_addr, (socklen_t *) &client_addr_len);
+    cout<<"client = "<<client<<endl;
     if(client < 0) {
       std::cerr << "Failed to accept client connection\n";
       return 1;
