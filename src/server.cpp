@@ -10,7 +10,113 @@
 #include <regex>
 #include <thread>
 #include <fstream>
+#include <unordered_map>
+// #include <bits/stdc++.h>
 using namespace std;
+
+struct HttpRequest {
+  unordered_map<string, string> headers;
+  string body;
+  string method;
+  string path;
+  string version;
+};
+
+struct HttpResponse {
+  unordered_map<string, string> headers;
+  string body;
+  string status;
+  string status_code;
+};
+
+HttpRequest parse_string(string request) {
+  HttpRequest httpRequest;
+  vector<string> request_parts;
+  size_t pos = 0;
+  string token;
+  string delimiter = "\r\n";
+
+  // fetching the request line
+  string request_line = request.substr(0, request.find("\r\n"));
+  request.erase(0, request.find("\r\n") + 2);
+  httpRequest.method = request_line.substr(0, request_line.find(" "));
+  request_line.erase(0, request_line.find(" ") + 1);
+  httpRequest.path = request_line.substr(0, request_line.find(" "));
+  request_line.erase(0, request_line.find(" ") + 1);
+  httpRequest.version = request_line;
+
+  while((pos = request.find(delimiter)) != string::npos) {
+    token = request.substr(0, pos);
+    string key = token.substr(0, token.find(":"));
+    token.erase(0, token.find(":") + 2);
+    string value = token;
+    httpRequest.headers[key] = value;
+    // request_parts.push_back(token);
+    request.erase(0, pos + delimiter.length());
+  }
+
+  // fetching the body
+  httpRequest.body = request;
+  return httpRequest;
+}
+
+int handleRequests_2(int client) {
+  string cli_message(1024, '\0');
+  size_t recvdbytes = recv(client, cli_message.data(), cli_message.size(), 0);
+  HttpRequest httpRequest = parse_string(cli_message);
+  HttpResponse httpResponse;
+  cout<<"httpRequest.path = "<<httpRequest.path<<endl;
+  if(httpRequest.method == "GET") {
+    if(httpRequest.path == "/") {
+      cout<<"replying from client = "<<client<<endl;
+      httpResponse.body = "HTTP/1.1 200 OK\r\n\r\n";
+    } else if (httpRequest.path.substr(0, 6) == "/echo/") {
+      string echo_string = httpRequest.path.substr(6, httpRequest.path.length() - 6);
+      if(httpRequest.headers.find("Accept-Encoding") != httpRequest.headers.end() && httpRequest.headers["Accept-Encoding"] != "invalid-encoding") {
+        httpResponse.body = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Encoding: " + httpRequest.headers["Accept-Encoding"] + "\r\nContent-Length: " + to_string(echo_string.length()) + "\r\n\r\n" + echo_string;
+      } else {
+        httpResponse.body = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " + to_string(echo_string.length()) + "\r\n\r\n" + echo_string;
+      }
+    } else if (httpRequest.path.substr(0, 11) == "/user-agent") {
+      string user_agent = httpRequest.headers["User-Agent"];
+      httpResponse.body = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length:" + to_string(user_agent.length()) + "\r\n\r\n" + user_agent;
+    } else if (httpRequest.path.substr(0, 7) == "/files/") {
+      string filename = httpRequest.path.substr(7, httpRequest.path.length() - 7);
+      std::ifstream infile("/tmp/data/codecrafters.io/http-server-tester/" + filename);
+      if (infile.good()) {
+        // cout<<"File is good"<<endl;
+        size_t chars_read;
+        char buffer[10000];
+        // Read file
+        if (!(infile.read(buffer, sizeof(buffer)))) { // Read up to the size of the buffer
+            if (!infile.eof()) { // End of file is an expected condition here and not worth 
+                                // clearing. What else are you going to read?
+                                // Something went wrong while reading. Find out what and handle.
+            }
+        }
+
+        chars_read = infile.gcount(); // Get amount of characters really read.
+        httpResponse.body = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: " + to_string(chars_read) + "\r\n\r\n" + string(buffer, chars_read);
+      } else {
+        httpResponse.body = "HTTP/1.1 404 Not Found\r\n\r\n";
+        // cout<<"File is not good"<<endl;
+      }
+    } else {
+      httpResponse.body = "HTTP/1.1 404 Not Found\r\n\r\n";
+    }
+  } else if (httpRequest.method == "POST") {
+    if(httpRequest.path.substr(0, 7) == "/files/") {
+      string filename = httpRequest.path.substr(7, httpRequest.path.length() - 7);
+      ofstream outfile("/tmp/data/codecrafters.io/http-server-tester/" + filename);
+      int content_length = stoi(httpRequest.headers["Content-Length"]);
+      outfile << httpRequest.body.substr(0, content_length);
+      outfile.close();
+      httpResponse.body = "HTTP/1.1 201 Created\r\n\r\n";
+    }
+  }
+  size_t sentbytes = send(client, httpResponse.body.c_str(), httpResponse.body.length(), 0);
+  return 0;
+}
 
 int handleRequests(int client) {
   cout<<"handling client = "<<client<<endl;
@@ -158,7 +264,7 @@ int main(int argc, char **argv) {
       return 1;
     }
     std::cout << "Client connected\n";
-    std::thread th(handleRequests, client);
+    std::thread th(handleRequests_2, client);
     th.detach();
   }
 
