@@ -30,7 +30,7 @@ struct HttpResponse {
   string version;
 };
 
-HttpRequest parse_string(string request) {
+HttpRequest parseRequest(string request) {
   HttpRequest httpRequest;
   vector<string> request_parts;
   size_t pos = 0;
@@ -88,11 +88,16 @@ string getHttpResponse(HttpResponse httpResponse) {
   response += "\r\n" + httpResponse.body;
   return response;
 }
+
 int handleRequests_2(int client) {
   string basepath = "/tmp/data/codecrafters.io/http-server-tester/";
   string cli_message(1024, '\0');
   size_t recvdbytes = recv(client, cli_message.data(), cli_message.size(), 0);
-  HttpRequest httpRequest = parse_string(cli_message);
+  if(recvdbytes < 0) {
+    std::cerr << "Failed to receive message from client\n";
+    return 1;
+  }
+  HttpRequest httpRequest = parseRequest(cli_message);
   HttpResponse httpResponse;
   httpResponse.version = "1.1";
   httpResponse.status = "200";
@@ -105,9 +110,9 @@ int handleRequests_2(int client) {
       if(httpRequest.headers.find("Accept-Encoding") != httpRequest.headers.end() && httpRequest.headers["Accept-Encoding"] != "invalid-encoding") {
         httpResponse.headers["Content-Encoding"] = httpRequest.headers["Accept-Encoding"];
       }
+        httpResponse.body = echo_string;
       httpResponse.headers["Content-Type"] = "text/plain";
       httpResponse.headers["Content-Length"] = to_string(echo_string.length());
-      httpResponse.body = echo_string;
     } else if (httpRequest.path.substr(0, 11) == "/user-agent") {
       string user_agent = httpRequest.headers["User-Agent"];
       httpResponse.headers["Content-Type"] = "text/plain";
@@ -155,94 +160,6 @@ int handleRequests_2(int client) {
   }
   string response = getHttpResponse(httpResponse);
   size_t sentbytes = send(client, response.c_str(), response.length(), 0);
-  return 0;
-}
-
-int handleRequests(int client) {
-  cout<<"handling client = "<<client<<endl;
-  string cli_message(1024, '\0');
-  size_t recvdbytes = recv(client, cli_message.data(), cli_message.size(), 0);
-  string request = cli_message.substr(0, cli_message.find("\r\n"));
-  vector<string> request_parts;
-  size_t pos = 0;
-  string token;
-  string delimiter = "\r\n";
-  while ((pos = cli_message.find(delimiter)) != string::npos) {
-    token = cli_message.substr(0, pos);
-    request_parts.push_back(token);
-    cli_message.erase(0, pos + delimiter.length());
-  }
-  request_parts.push_back(cli_message);
-  if(recvdbytes < 0) {
-    std::cerr << "Failed to receive message from client\n";
-    return 1;
-  }
-  cout<<"cli_message = "<<request<<endl;
-  string message = "";
-  string pattern = R"(^GET \/echo\/[^\s]+ HTTP\/1\.1$)";
-  string pattern3 = R"(^GET \/user-agent HTTP\/1\.1$)";
-  string pattern4 = R"(^GET \/files\/[^\s]+ HTTP\/1\.1$)";
-  string pattern_post = R"(^POST \/files\/[^\s]+ HTTP\/1\.1$)";
-  string pattern2 = R"(^GET \/ HTTP\/1\.1$)";
-  if(request.substr(0, 3) == "GET") {
-    if(regex_match(request, regex(pattern2))) {
-      cout<<"replying from client = "<<client<<endl;
-      message = "HTTP/1.1 200 OK\r\n\r\n";
-    } else if (regex_match(request, regex(pattern3))) {
-      cout<<"came here.....";
-      string user_agent = request_parts[2].replace(0, 12, "");
-      // cout<<"requests_parts.size() = "<<request_parts.size()<<" request_parts[0] = "<<request_parts[0]<<"request_parts[1] = "<<request_parts[1]<<endl;
-      message = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length:" + to_string(user_agent.length()) + "\r\n\r\n" + user_agent;
-    } else if (regex_match(request, regex(pattern))) {
-      string var = request.substr(10, request.find("HTTP") - 11);
-      int len = var.length();
-      message = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " + to_string(len) + "\r\n\r\n" + var;
-    } else if (regex_match(request, regex(pattern4))) {
-      string filename = request.substr(11, request.find("HTTP") - 12);
-      cout<<"filename = "<<filename<<endl;
-      std::ifstream infile("/tmp/data/codecrafters.io/http-server-tester/" + filename);
-      if (infile.good()) {
-        // cout<<"File is good"<<endl;
-        size_t chars_read;
-        char buffer[10000];
-        // Read file
-        if (!(infile.read(buffer, sizeof(buffer)))) { // Read up to the size of the buffer
-            if (!infile.eof()) { // End of file is an expected condition here and not worth 
-                                // clearing. What else are you going to read?
-                                // Something went wrong while reading. Find out what and handle.
-            }
-        }
-
-        chars_read = infile.gcount(); // Get amount of characters really read.
-        message = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: " + to_string(chars_read) + "\r\n\r\n" + string(buffer, chars_read);
-      } else {
-        message = "HTTP/1.1 404 Not Found\r\n\r\n";
-      }
-      
-    } else {
-      message = "HTTP/1.1 404 Not Found\r\n\r\n";
-    }
-  } else if(request.substr(0, 4) == "POST") {
-    cout<<"came here in POST"<<endl;
-    if(regex_match(request, regex(pattern_post))) {
-
-      string filename = request.substr(12, request.find("HTTP") - 13);
-      cout<<"request_parts[1]"<<request_parts[1]<<endl;
-      cout<<"request_parts[2]"<<request_parts[2]<<endl;
-      cout<<"request_parts[3]"<<request_parts[3]<<endl;
-      cout<<"request_parts[4]"<<request_parts[4]<<endl;
-      cout<<"request_parts[0]"<<request_parts[0]<<endl;
-      int content_length = stoi(request_parts[2].replace(0, 16, ""));
-      string content = request_parts[5] + "\n";
-      cout<<"content  = "<<content.length()<<endl;
-      ofstream outfile("/tmp/data/codecrafters.io/http-server-tester/" + filename);
-      outfile << content.substr(0, content_length);
-      outfile.close();
-      message = "HTTP/1.1 201 Created\r\n\r\n";
-    }
-  }
-  // string message = cli_message.substr(0, 16) == "GET / HTTP/1.1\r\n" ? "HTTP/1.1 200 OK\r\n\r\n" : "HTTP/1.1 404 Not Found\r\n\r\n";
-  size_t sentbytes = send(client, message.c_str(), message.length(), 0);
   if(sentbytes < 0) {
     std::cerr << "Failed to send message to client\n";
     return 1;
