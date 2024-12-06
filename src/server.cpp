@@ -36,6 +36,7 @@ int handleRequests(int client) {
   string pattern = R"(^GET \/echo\/[^\s]+ HTTP\/1\.1$)";
   string pattern3 = R"(^GET \/user-agent HTTP\/1\.1$)";
   string pattern4 = R"(^GET \/files\/[^\s]+ HTTP\/1\.1$)";
+  string pattern_post = R"(^POST \/files\/[^\s]+ HTTP\/1\.1$)";
   string pattern2 = R"(^GET \/ HTTP\/1\.1$)";
   if(request.substr(0, 3) == "GET") {
     if(regex_match(request, regex(pattern2))) {
@@ -75,6 +76,24 @@ int handleRequests(int client) {
       
     } else {
       message = "HTTP/1.1 404 Not Found\r\n\r\n";
+    }
+  } else if(request.substr(0, 4) == "POST") {
+    cout<<"came here in POST"<<endl;
+    if(regex_match(request, regex(pattern_post))) {
+
+      string filename = request.substr(12, request.find("HTTP") - 13);
+      cout<<"request_parts[1]"<<request_parts[1]<<endl;
+      cout<<"request_parts[2]"<<request_parts[2]<<endl;
+      cout<<"request_parts[3]"<<request_parts[3]<<endl;
+      cout<<"request_parts[4]"<<request_parts[4]<<endl;
+      cout<<"request_parts[0]"<<request_parts[0]<<endl;
+      int content_length = stoi(request_parts[2].replace(0, 16, ""));
+      string content = request_parts[5] + "\n";
+      cout<<"content  = "<<content.length()<<endl;
+      ofstream outfile("/tmp/data/codecrafters.io/http-server-tester/" + filename);
+      outfile << content.substr(0, content_length);
+      outfile.close();
+      message = "HTTP/1.1 201 Created\r\n\r\n";
     }
   }
   // string message = cli_message.substr(0, 16) == "GET / HTTP/1.1\r\n" ? "HTTP/1.1 200 OK\r\n\r\n" : "HTTP/1.1 404 Not Found\r\n\r\n";
