@@ -11,7 +11,7 @@
 #include <thread>
 #include <fstream>
 #include <unordered_map>
-// #include <bits/stdc++.h>
+#include "zlib.h"
 using namespace std;
 
 struct HttpRequest {
@@ -29,6 +29,53 @@ struct HttpResponse {
   string status_code;
   string version;
 };
+
+struct GzipCompressed {
+  string compressed_data;
+  unsigned long bytes;
+};
+
+GzipCompressed getGzipCompressed(string content) {
+  z_stream zs;
+  memset(&zs, 0, sizeof(zs));
+
+  // initialize zlib
+  int initStatus = deflateInit2(&zs, Z_BEST_COMPRESSION, Z_DEFLATED, 15 + 16, 8, Z_DEFAULT_STRATEGY);
+  if(initStatus != Z_OK) {
+    cout<<"initStatus = "<<initStatus<<endl;
+    throw std::runtime_error("deflateInit2 failed");
+    return GzipCompressed{};
+  }
+
+  //deflate the data
+  zs.next_in = (Bytef *)content.c_str();
+  zs.avail_in = content.length();
+  int ret = Z_OK;
+  char outbuffer[32768];  // 4 Bytes of data
+  string outstring;
+  while(ret == Z_OK) {
+    zs.next_out = reinterpret_cast<Bytef *>(outbuffer);
+    zs.avail_out = sizeof(outbuffer);
+
+    ret = deflate(&zs, Z_FINISH);
+
+    if(outstring.length() < zs.total_out) {
+      outstring.append(outbuffer, zs.total_out - outstring.length()); // get the data from the buffer, length using total_out - length of outstring
+    }
+  }
+
+  //clean up
+  deflateEnd(&zs);
+  if(ret != Z_STREAM_END) {
+    throw std::runtime_error("deflate failed");
+  }
+  
+  GzipCompressed gzipCompressed = {
+    compressed_data: outstring,
+    bytes: zs.total_out
+  };
+  return gzipCompressed;
+}
 
 HttpRequest parseRequest(string request) {
   HttpRequest httpRequest;
@@ -107,12 +154,17 @@ int handleRequests_2(int client) {
     if(httpRequest.path == "/") {
     } else if (httpRequest.path.substr(0, 6) == "/echo/") {
       string echo_string = httpRequest.path.substr(6, httpRequest.path.length() - 6);
+      httpResponse.headers["Content-Type"] = "text/plain";
       if(httpRequest.headers.find("Accept-Encoding") != httpRequest.headers.end() && httpRequest.headers["Accept-Encoding"] != "invalid-encoding") {
         httpResponse.headers["Content-Encoding"] = httpRequest.headers["Accept-Encoding"];
-      }
+        GzipCompressed gzipCompressed = getGzipCompressed(echo_string);
+        httpResponse.body = gzipCompressed.compressed_data;
+        httpResponse.headers["Content-Length"] = to_string(gzipCompressed.bytes);
+      } else {
         httpResponse.body = echo_string;
-      httpResponse.headers["Content-Type"] = "text/plain";
-      httpResponse.headers["Content-Length"] = to_string(echo_string.length());
+        httpResponse.headers["Content-Length"] = to_string(echo_string.length());
+      }
+      
     } else if (httpRequest.path.substr(0, 11) == "/user-agent") {
       string user_agent = httpRequest.headers["User-Agent"];
       httpResponse.headers["Content-Type"] = "text/plain";
