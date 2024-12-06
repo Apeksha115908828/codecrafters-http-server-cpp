@@ -27,12 +27,14 @@ struct HttpResponse {
   string body;
   string status;
   string status_code;
+  string version;
 };
 
 HttpRequest parse_string(string request) {
   HttpRequest httpRequest;
   vector<string> request_parts;
   size_t pos = 0;
+  size_t pos1 = 0;
   string token;
   string delimiter = "\r\n";
 
@@ -46,12 +48,30 @@ HttpRequest parse_string(string request) {
   httpRequest.version = request_line;
 
   while((pos = request.find(delimiter)) != string::npos) {
+    cout<<"before token = "<<token<<endl;
     token = request.substr(0, pos);
     string key = token.substr(0, token.find(":"));
     token.erase(0, token.find(":") + 2);
-    string value = token;
-    httpRequest.headers[key] = value;
-    // request_parts.push_back(token);
+    
+    if(key == "Accept-Encoding") {
+      string value = "";
+      cout<<"token = "<<token<<endl;
+      while((pos1 = token.find(", ")) != string::npos) {
+        string encoding = token.substr(0, pos1);
+        cout<<"encoding = "<<encoding<<"pos1 = "<<pos1<<endl;
+        if(encoding == "gzip") {
+          value += value == "" ? encoding : ", " + encoding;
+        }
+        token.erase(0, pos1 + 2);
+      }
+      if(token == "gzip") {
+        value += value == "" ? token : ", " + token;
+      }
+      httpRequest.headers[key] = value;
+    } else {
+      string value = token;
+      httpRequest.headers[key] = value;
+    }
     request.erase(0, pos + delimiter.length());
   }
 
@@ -60,31 +80,44 @@ HttpRequest parse_string(string request) {
   return httpRequest;
 }
 
+string getHttpResponse(HttpResponse httpResponse) {
+  string response = "HTTP/" + httpResponse.version + " " + httpResponse.status + " " + httpResponse.status_code + "\r\n";
+  for(auto it = httpResponse.headers.begin(); it != httpResponse.headers.end(); it++) {
+    response += it->first + ": " + it->second + "\r\n";
+  }
+  response += "\r\n" + httpResponse.body;
+  return response;
+}
 int handleRequests_2(int client) {
+  string basepath = "/tmp/data/codecrafters.io/http-server-tester/";
   string cli_message(1024, '\0');
   size_t recvdbytes = recv(client, cli_message.data(), cli_message.size(), 0);
   HttpRequest httpRequest = parse_string(cli_message);
   HttpResponse httpResponse;
+  httpResponse.version = "1.1";
+  httpResponse.status = "200";
+  httpResponse.status_code = "OK";
   cout<<"httpRequest.path = "<<httpRequest.path<<endl;
   if(httpRequest.method == "GET") {
     if(httpRequest.path == "/") {
-      cout<<"replying from client = "<<client<<endl;
-      httpResponse.body = "HTTP/1.1 200 OK\r\n\r\n";
     } else if (httpRequest.path.substr(0, 6) == "/echo/") {
       string echo_string = httpRequest.path.substr(6, httpRequest.path.length() - 6);
       if(httpRequest.headers.find("Accept-Encoding") != httpRequest.headers.end() && httpRequest.headers["Accept-Encoding"] != "invalid-encoding") {
-        httpResponse.body = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Encoding: " + httpRequest.headers["Accept-Encoding"] + "\r\nContent-Length: " + to_string(echo_string.length()) + "\r\n\r\n" + echo_string;
-      } else {
-        httpResponse.body = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " + to_string(echo_string.length()) + "\r\n\r\n" + echo_string;
+        httpResponse.headers["Content-Encoding"] = httpRequest.headers["Accept-Encoding"];
       }
+      httpResponse.headers["Content-Type"] = "text/plain";
+      httpResponse.headers["Content-Length"] = to_string(echo_string.length());
+      httpResponse.body = echo_string;
     } else if (httpRequest.path.substr(0, 11) == "/user-agent") {
       string user_agent = httpRequest.headers["User-Agent"];
-      httpResponse.body = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length:" + to_string(user_agent.length()) + "\r\n\r\n" + user_agent;
+      httpResponse.headers["Content-Type"] = "text/plain";
+      httpResponse.headers["Content-Length"] = to_string(user_agent.length());
+      httpResponse.body = user_agent;
     } else if (httpRequest.path.substr(0, 7) == "/files/") {
       string filename = httpRequest.path.substr(7, httpRequest.path.length() - 7);
-      std::ifstream infile("/tmp/data/codecrafters.io/http-server-tester/" + filename);
+      std::ifstream infile(basepath + filename);
       if (infile.good()) {
-        // cout<<"File is good"<<endl;
+        cout<<"File is good"<<endl;
         size_t chars_read;
         char buffer[10000];
         // Read file
@@ -96,25 +129,32 @@ int handleRequests_2(int client) {
         }
 
         chars_read = infile.gcount(); // Get amount of characters really read.
-        httpResponse.body = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: " + to_string(chars_read) + "\r\n\r\n" + string(buffer, chars_read);
+        cout<<"chars_read = "<<chars_read<<endl;
+        httpResponse.headers["Content-Type"] = "application/octet-stream";
+        httpResponse.headers["Content-Length"] = to_string(chars_read);
+        httpResponse.body = string(buffer, chars_read);
       } else {
-        httpResponse.body = "HTTP/1.1 404 Not Found\r\n\r\n";
-        // cout<<"File is not good"<<endl;
+        httpResponse.status = "404";
+        httpResponse.status_code = "Not Found";
+        cout<<"File is not good"<<endl;
       }
     } else {
-      httpResponse.body = "HTTP/1.1 404 Not Found\r\n\r\n";
+      httpResponse.status = "404";
+      httpResponse.status_code = "Not Found";
     }
   } else if (httpRequest.method == "POST") {
     if(httpRequest.path.substr(0, 7) == "/files/") {
       string filename = httpRequest.path.substr(7, httpRequest.path.length() - 7);
-      ofstream outfile("/tmp/data/codecrafters.io/http-server-tester/" + filename);
+      ofstream outfile(basepath + filename);
       int content_length = stoi(httpRequest.headers["Content-Length"]);
       outfile << httpRequest.body.substr(0, content_length);
       outfile.close();
-      httpResponse.body = "HTTP/1.1 201 Created\r\n\r\n";
+      httpResponse.status = "201";
+      httpResponse.status_code = "Created";
     }
   }
-  size_t sentbytes = send(client, httpResponse.body.c_str(), httpResponse.body.length(), 0);
+  string response = getHttpResponse(httpResponse);
+  size_t sentbytes = send(client, response.c_str(), response.length(), 0);
   return 0;
 }
 
@@ -177,7 +217,6 @@ int handleRequests(int client) {
         message = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: " + to_string(chars_read) + "\r\n\r\n" + string(buffer, chars_read);
       } else {
         message = "HTTP/1.1 404 Not Found\r\n\r\n";
-        // cout<<"File is not good"<<endl;
       }
       
     } else {
