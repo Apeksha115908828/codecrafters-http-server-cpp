@@ -9,6 +9,7 @@
 #include <netdb.h>
 #include <regex>
 #include <thread>
+#include <fstream>
 using namespace std;
 
 int handleRequests(int client) {
@@ -34,6 +35,7 @@ int handleRequests(int client) {
   string message = "";
   string pattern = R"(^GET \/echo\/[^\s]+ HTTP\/1\.1$)";
   string pattern3 = R"(^GET \/user-agent HTTP\/1\.1$)";
+  string pattern4 = R"(^GET \/files\/[^\s]+ HTTP\/1\.1$)";
   string pattern2 = R"(^GET \/ HTTP\/1\.1$)";
   if(request.substr(0, 3) == "GET") {
     if(regex_match(request, regex(pattern2))) {
@@ -48,6 +50,29 @@ int handleRequests(int client) {
       string var = request.substr(10, request.find("HTTP") - 11);
       int len = var.length();
       message = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " + to_string(len) + "\r\n\r\n" + var;
+    } else if (regex_match(request, regex(pattern4))) {
+      string filename = request.substr(11, request.find("HTTP") - 12);
+      cout<<"filename = "<<filename<<endl;
+      std::ifstream infile("/tmp/data/codecrafters.io/http-server-tester/" + filename);
+      if (infile.good()) {
+        // cout<<"File is good"<<endl;
+        size_t chars_read;
+        char buffer[10000];
+        // Read file
+        if (!(infile.read(buffer, sizeof(buffer)))) { // Read up to the size of the buffer
+            if (!infile.eof()) { // End of file is an expected condition here and not worth 
+                                // clearing. What else are you going to read?
+                                // Something went wrong while reading. Find out what and handle.
+            }
+        }
+
+        chars_read = infile.gcount(); // Get amount of characters really read.
+        message = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: " + to_string(chars_read) + "\r\n\r\n" + string(buffer, chars_read);
+      } else {
+        message = "HTTP/1.1 404 Not Found\r\n\r\n";
+        // cout<<"File is not good"<<endl;
+      }
+      
     } else {
       message = "HTTP/1.1 404 Not Found\r\n\r\n";
     }
