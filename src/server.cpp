@@ -7,6 +7,7 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <regex>
 using namespace std;
 int main(int argc, char **argv) {
   // Flush after every std::cout / std::cerr
@@ -61,13 +62,27 @@ int main(int argc, char **argv) {
 
   string cli_message(1024, '\0');
   size_t recvdbytes = recv(client, cli_message.data(), cli_message.size(), 0);
+  cli_message = cli_message.substr(0, cli_message.find("\r\n"));
   if(recvdbytes < 0) {
     std::cerr << "Failed to receive message from client\n";
     return 1;
   }
   cout<<"cli_message = "<<cli_message<<endl;
-
-  string message = cli_message.substr(0, 16) == "GET / HTTP/1.1\r\n" ? "HTTP/1.1 200 OK\r\n\r\n" : "HTTP/1.1 404 Not Found\r\n\r\n";
+  string message = "";
+  string pattern = R"(^GET \/echo\/[^\s]+ HTTP\/1\.1$)";
+  string pattern2 = R"(^GET \/ HTTP\/1\.1$)";
+  if(cli_message.substr(0, 3) == "GET") {
+    if(regex_match(cli_message, regex(pattern2))) {
+      message = "HTTP/1.1 200 OK\r\n\r\n";
+    } else if (regex_match(cli_message, regex(pattern))) {
+      string var = cli_message.substr(10, cli_message.find("HTTP") - 11);
+      int len = var.length();
+      message = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " + to_string(len) + "\r\n\r\n" + var;
+    } else {
+      message = "HTTP/1.1 404 Not Found\r\n\r\n";
+    }
+  }
+  // string message = cli_message.substr(0, 16) == "GET / HTTP/1.1\r\n" ? "HTTP/1.1 200 OK\r\n\r\n" : "HTTP/1.1 404 Not Found\r\n\r\n";
   size_t sentbytes = send(client, message.c_str(), message.length(), 0);
   if(sentbytes < 0) {
     std::cerr << "Failed to send message to client\n";
